@@ -1,0 +1,4 @@
+CREATE DATABASE IF NOT EXISTS revhire_authentication;
+CREATE DATABASE IF NOT EXISTS revhire_profile;
+CREATE DATABASE IF NOT EXISTS revhire_job;
+CREATE DATABASE IF NOT EXISTS revhire_application;
