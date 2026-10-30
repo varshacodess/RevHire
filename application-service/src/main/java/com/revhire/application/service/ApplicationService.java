@@ -8,6 +8,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
 @Service
 public class ApplicationService {
 
@@ -44,5 +48,19 @@ public class ApplicationService {
                     exception
             );
         }
+    }
+
+    @Transactional(readOnly = true)
+    public List<Application> findByCandidateId(Long candidateId) {
+        return applicationRepository
+                .findAllByCandidateIdOrderByAppliedDateDesc(candidateId)
+                .stream()
+                .filter(application -> Objects.equals(candidateId, application.getCandidateId()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Application> findByApplicationIdAndCandidateId(Long applicationId, Long candidateId) {
+        return applicationRepository.findByApplicationIdAndCandidateId(applicationId, candidateId);
     }
 }
