@@ -39,7 +39,7 @@ public class ApplicationService {
         }
 
         try {
-            return applicationRepository.save(
+            return applicationRepository.saveAndFlush(
                     new Application(candidateId, request.jobId(), INITIAL_STATUS)
             );
         } catch (DataIntegrityViolationException exception) {

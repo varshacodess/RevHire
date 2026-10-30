@@ -10,6 +10,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
@@ -18,6 +19,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,14 +39,14 @@ class ApplicationServiceTest {
     @Test
     void savesApplicationWithInitialStatusAfterEligibilityCheck() {
         when(applicationRepository.existsByCandidateIdAndJobId(41L, 12L)).thenReturn(false);
-        when(applicationRepository.save(org.mockito.ArgumentMatchers.any(Application.class)))
+        when(applicationRepository.saveAndFlush(any(Application.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         Application result = applicationService.submit(41L, new SubmitApplicationRequest(12L));
 
         ArgumentCaptor<Application> applicationCaptor = ArgumentCaptor.forClass(Application.class);
         verify(jobEligibilityVerifier).verifyJobIsOpen(12L);
-        verify(applicationRepository).save(applicationCaptor.capture());
+        verify(applicationRepository).saveAndFlush(applicationCaptor.capture());
         assertEquals(41L, result.getCandidateId());
         assertEquals(12L, result.getJobId());
         assertEquals("PENDING", applicationCaptor.getValue().getStatus());
@@ -57,6 +60,24 @@ class ApplicationServiceTest {
                 DuplicateApplicationException.class,
                 () -> applicationService.submit(41L, new SubmitApplicationRequest(12L))
         );
+        verify(applicationRepository, never()).saveAndFlush(any(Application.class));
+    }
+
+    @Test
+    void convertsDatabaseConstraintViolationToDuplicateApplicationException() {
+        DataIntegrityViolationException databaseException =
+                new DataIntegrityViolationException("Unique constraint violation");
+        when(applicationRepository.existsByCandidateIdAndJobId(41L, 12L)).thenReturn(false);
+        when(applicationRepository.saveAndFlush(any(Application.class))).thenThrow(databaseException);
+
+        DuplicateApplicationException exception = assertThrows(
+                DuplicateApplicationException.class,
+                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L))
+        );
+
+        assertEquals("Candidate has already applied for this job", exception.getMessage());
+        assertEquals(databaseException, exception.getCause());
+        verify(applicationRepository).saveAndFlush(any(Application.class));
     }
 
     @Test
