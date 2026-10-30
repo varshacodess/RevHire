@@ -11,6 +11,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -127,6 +131,134 @@ class ApplicationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    void returnsPaginatedApplicationsForCurrentCandidate() throws Exception {
+        when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
+        List<Application> applications = List.of(
+                application(41L, 12L, 7L, "PENDING", LocalDateTime.parse("2026-10-29T12:00:00")),
+                application(41L, 14L, 8L, "REVIEWING", LocalDateTime.parse("2026-10-28T12:00:00"))
+        );
+        when(applicationService.findByCandidateId(
+                eq(41L),
+                org.mockito.ArgumentMatchers.isNull(),
+                eq(PageRequest.of(1, 2, Sort.by(Sort.Direction.DESC, "appliedDate")))
+        )).thenReturn(new PageImpl<>(
+                applications,
+                PageRequest.of(1, 2, Sort.by(Sort.Direction.DESC, "appliedDate")),
+                5
+        ));
+
+        mockMvc.perform(get("/api/applications/me/page?page=1&size=2&candidateId=99")
+                        .with(user("candidate")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applications.length()").value(2))
+                .andExpect(jsonPath("$.applications[0].applicationId").value(7))
+                .andExpect(jsonPath("$.applications[1].applicationId").value(8))
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.totalPages").value(3))
+                .andExpect(jsonPath("$.currentPage").value(1))
+                .andExpect(jsonPath("$.pageSize").value(2));
+
+        verify(candidateIdentityProvider).getCandidateId(any());
+        verify(applicationService).findByCandidateId(
+                eq(41L),
+                org.mockito.ArgumentMatchers.isNull(),
+                eq(PageRequest.of(1, 2, Sort.by(Sort.Direction.DESC, "appliedDate")))
+        );
+    }
+
+    @Test
+    void filtersPaginatedApplicationsByStatus() throws Exception {
+        when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
+        Application application = application(
+                41L, 12L, 7L, "REVIEWING", LocalDateTime.parse("2026-10-29T12:00:00")
+        );
+        when(applicationService.findByCandidateId(
+                eq(41L),
+                eq("REVIEWING"),
+                eq(PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate")))
+        )).thenReturn(new PageImpl<>(
+                List.of(application),
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate")),
+                1
+        ));
+
+        mockMvc.perform(get("/api/applications/me/page?status=reviewing").with(user("candidate")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applications.length()").value(1))
+                .andExpect(jsonPath("$.applications[0].status").value("REVIEWING"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.currentPage").value(0))
+                .andExpect(jsonPath("$.pageSize").value(10));
+
+        verify(applicationService).findByCandidateId(
+                eq(41L),
+                eq("REVIEWING"),
+                eq(PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate")))
+        );
+    }
+
+    @Test
+    void returnsEmptyPaginatedResults() throws Exception {
+        when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
+        when(applicationService.findByCandidateId(
+                eq(41L),
+                eq("REVIEWING"),
+                any()
+        )).thenReturn(Page.empty(
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate"))
+        ));
+
+        mockMvc.perform(get("/api/applications/me/page?status=REVIEWING").with(user("candidate")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applications").isArray())
+                .andExpect(jsonPath("$.applications").isEmpty())
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0))
+                .andExpect(jsonPath("$.currentPage").value(0))
+                .andExpect(jsonPath("$.pageSize").value(10));
+    }
+
+    @Test
+    void rejectsNegativePage() throws Exception {
+        mockMvc.perform(get("/api/applications/me/page?page=-1").with(user("candidate")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors.parameter").value("page must be non-negative"));
+    }
+
+    @Test
+    void rejectsSizeOutsideAllowedRange() throws Exception {
+        mockMvc.perform(get("/api/applications/me/page?size=101").with(user("candidate")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors.parameter").value("size must be between 1 and 100"));
+        mockMvc.perform(get("/api/applications/me/page?size=0").with(user("candidate")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors.parameter").value("size must be between 1 and 100"));
+    }
+
+    @Test
+    void rejectsInvalidStatus() throws Exception {
+        mockMvc.perform(get("/api/applications/me/page?status=UNKNOWN").with(user("candidate")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors.parameter").value("status must be PENDING or REVIEWING"));
+    }
+
+    @Test
+    void rejectsMalformedPageAndSizeValues() throws Exception {
+        mockMvc.perform(get("/api/applications/me/page?page=abc").with(user("candidate")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors.page").exists());
+        mockMvc.perform(get("/api/applications/me/page?size=abc").with(user("candidate")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors.size").exists());
     }
 
     @Test

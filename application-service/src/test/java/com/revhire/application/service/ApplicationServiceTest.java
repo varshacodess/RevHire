@@ -10,6 +10,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -102,6 +107,50 @@ class ApplicationServiceTest {
                 .thenReturn(List.of());
 
         assertEquals(List.of(), applicationService.findByCandidateId(41L));
+    }
+
+    @Test
+    void findsCandidateApplicationsWithPaginationAndNewestFirstSort() {
+        Pageable pageable = PageRequest.of(1, 2, Sort.by(Sort.Direction.DESC, "appliedDate"));
+        List<Application> applications = List.of(
+                application(41L, 12L, 7L, LocalDateTime.parse("2026-10-29T12:00:00")),
+                application(41L, 14L, 8L, LocalDateTime.parse("2026-10-28T12:00:00"))
+        );
+        Page<Application> expected = new PageImpl<>(applications, pageable, 5);
+        when(applicationRepository.findAllByCandidateId(41L, pageable)).thenReturn(expected);
+
+        Page<Application> result = applicationService.findByCandidateId(41L, null, pageable);
+
+        assertEquals(expected, result);
+        verify(applicationRepository).findAllByCandidateId(41L, pageable);
+    }
+
+    @Test
+    void filtersPaginatedApplicationsByStatusAndCandidate() {
+        Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate"));
+        Page<Application> expected = new PageImpl<>(
+                List.of(application(41L, 12L, 7L, LocalDateTime.parse("2026-10-29T12:00:00")))
+        );
+        when(applicationRepository.findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable))
+                .thenReturn(expected);
+
+        Page<Application> result = applicationService.findByCandidateId(41L, "REVIEWING", pageable);
+
+        assertEquals(expected, result);
+        verify(applicationRepository).findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable);
+    }
+
+    @Test
+    void returnsEmptyPageWhenCandidateHasNoMatchingApplications() {
+        Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate"));
+        when(applicationRepository.findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable))
+                .thenReturn(Page.empty(pageable));
+
+        Page<Application> result = applicationService.findByCandidateId(41L, "REVIEWING", pageable);
+
+        assertEquals(0, result.getTotalElements());
+        assertEquals(0, result.getTotalPages());
+        verify(applicationRepository).findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable);
     }
 
     @Test

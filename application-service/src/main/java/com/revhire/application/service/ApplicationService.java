@@ -5,6 +5,8 @@ import com.revhire.application.entity.Application;
 import com.revhire.application.exception.DuplicateApplicationException;
 import com.revhire.application.repository.ApplicationRepository;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +59,14 @@ public class ApplicationService {
                 .stream()
                 .filter(application -> Objects.equals(candidateId, application.getCandidateId()))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Application> findByCandidateId(Long candidateId, String status, Pageable pageable) {
+        if (status == null) {
+            return applicationRepository.findAllByCandidateId(candidateId, pageable);
+        }
+        return applicationRepository.findAllByCandidateIdAndStatus(candidateId, status, pageable);
     }
 
     @Transactional(readOnly = true)
