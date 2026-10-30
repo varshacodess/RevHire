@@ -2,6 +2,7 @@ package com.revhire.application.controller;
 
 import com.revhire.application.dto.SubmitApplicationRequest;
 import com.revhire.application.entity.Application;
+import com.revhire.application.entity.ApplicationStatus;
 import com.revhire.application.exception.AuthenticationRequiredException;
 import com.revhire.application.exception.DependencyUnavailableException;
 import com.revhire.application.exception.DuplicateApplicationException;
@@ -50,7 +51,7 @@ class ApplicationControllerTest {
     @Test
     void submitsApplicationAndReturnsCreatedResponse() throws Exception {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
-        Application saved = new Application(41L, 12L, "PENDING");
+        Application saved = new Application(41L, 12L, ApplicationStatus.PENDING);
         ReflectionTestUtils.setField(saved, "applicationId", 7L);
         when(applicationService.submit(eq(41L), any(SubmitApplicationRequest.class))).thenReturn(saved);
 
@@ -100,10 +101,10 @@ class ApplicationControllerTest {
     void returnsCurrentCandidatesApplicationsWithExistingResponseFields() throws Exception {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
         Application newest = application(
-                41L, 12L, 7L, "PENDING", LocalDateTime.parse("2026-10-29T12:00:00")
+                41L, 12L, 7L, ApplicationStatus.PENDING, LocalDateTime.parse("2026-10-29T12:00:00")
         );
         Application older = application(
-                41L, 14L, 8L, "REVIEWING", LocalDateTime.parse("2026-10-28T12:00:00")
+                41L, 14L, 8L, ApplicationStatus.REVIEWING, LocalDateTime.parse("2026-10-28T12:00:00")
         );
         when(applicationService.findByCandidateId(41L)).thenReturn(List.of(newest, older));
 
@@ -134,11 +135,46 @@ class ApplicationControllerTest {
     }
 
     @Test
+    void returnsSummaryForAuthenticatedCandidate() throws Exception {
+        when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
+        when(applicationService.getSummaryByCandidateId(41L))
+                .thenReturn(new ApplicationService.ApplicationSummary(3, 2, 1));
+
+        mockMvc.perform(get("/api/applications/me/summary?candidateId=42").with(user("candidate")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalApplications").value(3))
+                .andExpect(jsonPath("$.pendingApplications").value(2))
+                .andExpect(jsonPath("$.reviewingApplications").value(1));
+
+        verify(candidateIdentityProvider).getCandidateId(any());
+        verify(applicationService).getSummaryByCandidateId(41L);
+    }
+
+    @Test
+    void returnsZeroSummaryForCandidateWithoutApplications() throws Exception {
+        when(candidateIdentityProvider.getCandidateId(any())).thenReturn(42L);
+        when(applicationService.getSummaryByCandidateId(42L))
+                .thenReturn(new ApplicationService.ApplicationSummary(0, 0, 0));
+
+        mockMvc.perform(get("/api/applications/me/summary").with(user("candidate")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalApplications").value(0))
+                .andExpect(jsonPath("$.pendingApplications").value(0))
+                .andExpect(jsonPath("$.reviewingApplications").value(0));
+    }
+
+    @Test
     void returnsPaginatedApplicationsForCurrentCandidate() throws Exception {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
         List<Application> applications = List.of(
-                application(41L, 12L, 7L, "PENDING", LocalDateTime.parse("2026-10-29T12:00:00")),
-                application(41L, 14L, 8L, "REVIEWING", LocalDateTime.parse("2026-10-28T12:00:00"))
+                application(
+                        41L, 12L, 7L, ApplicationStatus.PENDING,
+                        LocalDateTime.parse("2026-10-29T12:00:00")
+                ),
+                application(
+                        41L, 14L, 8L, ApplicationStatus.REVIEWING,
+                        LocalDateTime.parse("2026-10-28T12:00:00")
+                )
         );
         when(applicationService.findByCandidateId(
                 eq(41L),
@@ -173,11 +209,11 @@ class ApplicationControllerTest {
     void filtersPaginatedApplicationsByStatus() throws Exception {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
         Application application = application(
-                41L, 12L, 7L, "REVIEWING", LocalDateTime.parse("2026-10-29T12:00:00")
+                41L, 12L, 7L, ApplicationStatus.REVIEWING, LocalDateTime.parse("2026-10-29T12:00:00")
         );
         when(applicationService.findByCandidateId(
                 eq(41L),
-                eq("REVIEWING"),
+                eq(ApplicationStatus.REVIEWING),
                 eq(PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate")))
         )).thenReturn(new PageImpl<>(
                 List.of(application),
@@ -195,7 +231,7 @@ class ApplicationControllerTest {
 
         verify(applicationService).findByCandidateId(
                 eq(41L),
-                eq("REVIEWING"),
+                eq(ApplicationStatus.REVIEWING),
                 eq(PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate")))
         );
     }
@@ -205,7 +241,7 @@ class ApplicationControllerTest {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
         when(applicationService.findByCandidateId(
                 eq(41L),
-                eq("REVIEWING"),
+                eq(ApplicationStatus.REVIEWING),
                 any()
         )).thenReturn(Page.empty(
                 PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate"))
@@ -285,7 +321,7 @@ class ApplicationControllerTest {
     void returnsApplicationWhenItBelongsToCurrentCandidate() throws Exception {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
         Application application = application(
-                41L, 12L, 7L, "PENDING", LocalDateTime.parse("2026-10-29T12:00:00")
+                41L, 12L, 7L, ApplicationStatus.PENDING, LocalDateTime.parse("2026-10-29T12:00:00")
         );
         when(applicationService.findByApplicationIdAndCandidateId(7L, 41L))
                 .thenReturn(Optional.of(application));
@@ -358,7 +394,7 @@ class ApplicationControllerTest {
             Long candidateId,
             Long jobId,
             Long applicationId,
-            String status,
+            ApplicationStatus status,
             LocalDateTime appliedDate
     ) {
         Application application = new Application(candidateId, jobId, status);

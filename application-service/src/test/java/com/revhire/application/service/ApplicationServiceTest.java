@@ -2,6 +2,7 @@ package com.revhire.application.service;
 
 import com.revhire.application.dto.SubmitApplicationRequest;
 import com.revhire.application.entity.Application;
+import com.revhire.application.entity.ApplicationStatus;
 import com.revhire.application.exception.DuplicateApplicationException;
 import com.revhire.application.repository.ApplicationRepository;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -54,7 +56,7 @@ class ApplicationServiceTest {
         verify(applicationRepository).saveAndFlush(applicationCaptor.capture());
         assertEquals(41L, result.getCandidateId());
         assertEquals(12L, result.getJobId());
-        assertEquals("PENDING", applicationCaptor.getValue().getStatus());
+        assertEquals(ApplicationStatus.PENDING, applicationCaptor.getValue().getStatus());
     }
 
     @Test
@@ -131,26 +133,56 @@ class ApplicationServiceTest {
         Page<Application> expected = new PageImpl<>(
                 List.of(application(41L, 12L, 7L, LocalDateTime.parse("2026-10-29T12:00:00")))
         );
-        when(applicationRepository.findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable))
+        when(applicationRepository.findAllByCandidateIdAndStatus(41L, ApplicationStatus.REVIEWING, pageable))
                 .thenReturn(expected);
 
-        Page<Application> result = applicationService.findByCandidateId(41L, "REVIEWING", pageable);
+        Page<Application> result = applicationService.findByCandidateId(41L, ApplicationStatus.REVIEWING, pageable);
 
         assertEquals(expected, result);
-        verify(applicationRepository).findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable);
+        verify(applicationRepository).findAllByCandidateIdAndStatus(41L, ApplicationStatus.REVIEWING, pageable);
     }
 
     @Test
     void returnsEmptyPageWhenCandidateHasNoMatchingApplications() {
         Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate"));
-        when(applicationRepository.findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable))
+        when(applicationRepository.findAllByCandidateIdAndStatus(41L, ApplicationStatus.REVIEWING, pageable))
                 .thenReturn(Page.empty(pageable));
 
-        Page<Application> result = applicationService.findByCandidateId(41L, "REVIEWING", pageable);
+        Page<Application> result = applicationService.findByCandidateId(41L, ApplicationStatus.REVIEWING, pageable);
 
         assertEquals(0, result.getTotalElements());
         assertEquals(0, result.getTotalPages());
-        verify(applicationRepository).findAllByCandidateIdAndStatus(41L, "REVIEWING", pageable);
+        verify(applicationRepository).findAllByCandidateIdAndStatus(41L, ApplicationStatus.REVIEWING, pageable);
+    }
+
+    @Test
+    void totalSummaryIncludesApplicationsWithOtherStatuses() {
+        ApplicationRepository.ApplicationSummaryCounts counts =
+                mock(ApplicationRepository.ApplicationSummaryCounts.class);
+        when(counts.getTotalApplications()).thenReturn(4L);
+        when(counts.getPendingApplications()).thenReturn(2L);
+        when(counts.getReviewingApplications()).thenReturn(1L);
+        when(applicationRepository.getSummaryByCandidateId(41L)).thenReturn(counts);
+
+        ApplicationService.ApplicationSummary summary = applicationService.getSummaryByCandidateId(41L);
+
+        assertEquals(new ApplicationService.ApplicationSummary(4, 2, 1), summary);
+        verify(applicationRepository).getSummaryByCandidateId(41L);
+    }
+
+    @Test
+    void returnsZeroCountsForCandidateWithNoApplications() {
+        ApplicationRepository.ApplicationSummaryCounts counts =
+                mock(ApplicationRepository.ApplicationSummaryCounts.class);
+        when(counts.getTotalApplications()).thenReturn(0L);
+        when(counts.getPendingApplications()).thenReturn(0L);
+        when(counts.getReviewingApplications()).thenReturn(0L);
+        when(applicationRepository.getSummaryByCandidateId(42L)).thenReturn(counts);
+
+        ApplicationService.ApplicationSummary summary = applicationService.getSummaryByCandidateId(42L);
+
+        assertEquals(new ApplicationService.ApplicationSummary(0, 0, 0), summary);
+        verify(applicationRepository).getSummaryByCandidateId(42L);
     }
 
     @Test
@@ -181,7 +213,7 @@ class ApplicationServiceTest {
             Long applicationId,
             LocalDateTime appliedDate
     ) {
-        Application application = new Application(candidateId, jobId, "PENDING");
+        Application application = new Application(candidateId, jobId, ApplicationStatus.PENDING);
         ReflectionTestUtils.setField(application, "applicationId", applicationId);
         ReflectionTestUtils.setField(application, "appliedDate", appliedDate);
         ReflectionTestUtils.setField(application, "updatedDate", appliedDate.plusHours(1));
