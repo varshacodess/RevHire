@@ -3,6 +3,7 @@ package com.revhire.authentication.service;
 import com.revhire.authentication.dto.AuthResponse;
 import com.revhire.authentication.dto.CandidateRegistrationRequest;
 import com.revhire.authentication.dto.LoginRequest;
+import com.revhire.authentication.dto.RecruiterRegistrationRequest;
 import com.revhire.authentication.dto.UserResponse;
 import com.revhire.authentication.entity.Role;
 import com.revhire.authentication.entity.User;
@@ -38,6 +39,11 @@ public class AuthenticationService {
     @Transactional
     public UserResponse registerCandidate(CandidateRegistrationRequest request) {
         return register(request.fullName(), request.email(), request.username(), request.password(), Role.CANDIDATE);
+    }
+
+    @Transactional
+    public UserResponse registerRecruiter(RecruiterRegistrationRequest request) {
+        return register(request.fullName(), request.email(), request.username(), request.password(), Role.RECRUITER);
     }
 
     @Transactional(readOnly = true)

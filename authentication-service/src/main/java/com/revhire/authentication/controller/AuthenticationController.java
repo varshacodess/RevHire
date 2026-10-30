@@ -3,6 +3,7 @@ package com.revhire.authentication.controller;
 import com.revhire.authentication.dto.AuthResponse;
 import com.revhire.authentication.dto.CandidateRegistrationRequest;
 import com.revhire.authentication.dto.LoginRequest;
+import com.revhire.authentication.dto.RecruiterRegistrationRequest;
 import com.revhire.authentication.dto.UserResponse;
 import com.revhire.authentication.service.AuthenticationService;
 import jakarta.validation.Valid;
@@ -25,6 +26,11 @@ public class AuthenticationController {
     @PostMapping("/candidate/register")
     public ResponseEntity<UserResponse> registerCandidate(@Valid @RequestBody CandidateRegistrationRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(authenticationService.registerCandidate(request));
+    }
+
+    @PostMapping("/recruiter/register")
+    public ResponseEntity<UserResponse> registerRecruiter(@Valid @RequestBody RecruiterRegistrationRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(authenticationService.registerRecruiter(request));
     }
 
     @PostMapping("/login")
