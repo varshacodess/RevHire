@@ -41,7 +41,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Jws<Claims> parsed = jwtService.parseToken(header.substring(7));
             String subject = parsed.getPayload().getSubject();
             String role = parsed.getPayload().get("role", String.class);
-            if (subject == null || !"CANDIDATE".equals(role)) {
+            if (subject == null || role == null) {
                 writeUnauthorized(response);
                 return;
             }
