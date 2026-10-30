@@ -10,30 +10,31 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
-    @ExceptionHandler(DuplicateCandidateException.class)
-    public ResponseEntity<Map<String, String>> handleDuplicateCandidate(DuplicateCandidateException exception) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(Map.of("error", exception.getMessage()));
+    @ExceptionHandler(DuplicateUserException.class)
+    public ResponseEntity<Map<String, String>> handleDuplicateUser(DuplicateUserException exception) {
+        return error(HttpStatus.CONFLICT, exception.getMessage());
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, String>> handleDataIntegrityViolation() {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(Map.of("error", "Email or username is already registered"));
+        return error(HttpStatus.CONFLICT, "Email or username is already registered");
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<Map<String, String>> handleInvalidCredentials(InvalidCredentialsException exception) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(Map.of("error", exception.getMessage()));
+        return error(HttpStatus.UNAUTHORIZED, exception.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, String>> handleValidationFailure(MethodArgumentNotValidException exception) {
         String message = exception.getBindingResult().getFieldErrors().stream()
                 .findFirst()
-                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .orElse("Request validation failed");
-        return ResponseEntity.badRequest().body(Map.of("error", message));
+        return error(HttpStatus.BAD_REQUEST, message);
+    }
+
+    private ResponseEntity<Map<String, String>> error(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(Map.of("error", message));
     }
 }
