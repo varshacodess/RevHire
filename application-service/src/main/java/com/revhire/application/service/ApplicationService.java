@@ -2,6 +2,7 @@ package com.revhire.application.service;
 
 import com.revhire.application.dto.SubmitApplicationRequest;
 import com.revhire.application.entity.Application;
+import com.revhire.application.entity.ApplicationStatus;
 import com.revhire.application.exception.DuplicateApplicationException;
 import com.revhire.application.repository.ApplicationRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -17,7 +18,7 @@ import java.util.Optional;
 @Service
 public class ApplicationService {
 
-    private static final String INITIAL_STATUS = "PENDING";
+    private static final ApplicationStatus INITIAL_STATUS = ApplicationStatus.PENDING;
 
     private final ApplicationRepository applicationRepository;
     private final JobEligibilityVerifier jobEligibilityVerifier;
@@ -62,7 +63,11 @@ public class ApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Application> findByCandidateId(Long candidateId, String status, Pageable pageable) {
+    public Page<Application> findByCandidateId(
+            Long candidateId,
+            ApplicationStatus status,
+            Pageable pageable
+    ) {
         if (status == null) {
             return applicationRepository.findAllByCandidateId(candidateId, pageable);
         }
@@ -70,7 +75,25 @@ public class ApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public ApplicationSummary getSummaryByCandidateId(Long candidateId) {
+        ApplicationRepository.ApplicationSummaryCounts counts =
+                applicationRepository.getSummaryByCandidateId(candidateId);
+        return new ApplicationSummary(
+                counts.getTotalApplications(),
+                counts.getPendingApplications(),
+                counts.getReviewingApplications()
+        );
+    }
+
+    @Transactional(readOnly = true)
     public Optional<Application> findByApplicationIdAndCandidateId(Long applicationId, Long candidateId) {
         return applicationRepository.findByApplicationIdAndCandidateId(applicationId, candidateId);
+    }
+
+    public record ApplicationSummary(
+            long totalApplications,
+            long pendingApplications,
+            long reviewingApplications
+    ) {
     }
 }

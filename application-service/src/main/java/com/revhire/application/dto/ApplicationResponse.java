@@ -1,6 +1,7 @@
 package com.revhire.application.dto;
 
 import com.revhire.application.entity.Application;
+import com.revhire.application.entity.ApplicationStatus;
 
 import java.time.LocalDateTime;
 
@@ -8,7 +9,7 @@ public record ApplicationResponse(
         Long applicationId,
         Long candidateId,
         Long jobId,
-        String status,
+        ApplicationStatus status,
         LocalDateTime appliedDate,
         LocalDateTime updatedDate
 ) {

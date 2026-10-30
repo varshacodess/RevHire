@@ -3,6 +3,7 @@ package com.revhire.application.controller;
 import com.revhire.application.dto.ApplicationResponse;
 import com.revhire.application.dto.SubmitApplicationRequest;
 import com.revhire.application.entity.Application;
+import com.revhire.application.entity.ApplicationStatus;
 import com.revhire.application.service.ApplicationService;
 import com.revhire.application.service.CandidateIdentityProvider;
 import jakarta.validation.Valid;
@@ -25,13 +26,10 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/applications")
 public class ApplicationController {
-
-    private static final Set<String> APPLICATION_STATUSES = Set.of("PENDING", "REVIEWING");
 
     private final ApplicationService applicationService;
     private final CandidateIdentityProvider candidateIdentityProvider;
@@ -68,6 +66,14 @@ public class ApplicationController {
         return ResponseEntity.ok(applications);
     }
 
+    @GetMapping("/me/summary")
+    public ResponseEntity<ApplicationService.ApplicationSummary> getMyApplicationSummary(
+            Authentication authentication
+    ) {
+        Long candidateId = candidateIdentityProvider.getCandidateId(authentication);
+        return ResponseEntity.ok(applicationService.getSummaryByCandidateId(candidateId));
+    }
+
     @GetMapping("/me/page")
     public ResponseEntity<ApplicationPageResponse> findMyApplicationsPage(
             Authentication authentication,
@@ -82,18 +88,19 @@ public class ApplicationController {
             throw new IllegalArgumentException("size must be between 1 and 100");
         }
 
-        String normalizedStatus = null;
+        ApplicationStatus applicationStatus = null;
         if (status != null) {
-            normalizedStatus = status.trim().toUpperCase(Locale.ROOT);
-            if (!APPLICATION_STATUSES.contains(normalizedStatus)) {
-                throw new IllegalArgumentException("status must be PENDING or REVIEWING");
+            try {
+                applicationStatus = ApplicationStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException exception) {
+                throw new IllegalArgumentException("status must be PENDING or REVIEWING", exception);
             }
         }
 
         Long candidateId = candidateIdentityProvider.getCandidateId(authentication);
         Page<ApplicationResponse> applicationPage = applicationService.findByCandidateId(
                         candidateId,
-                        normalizedStatus,
+                        applicationStatus,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "appliedDate"))
                 )
                 .map(ApplicationResponse::from);
