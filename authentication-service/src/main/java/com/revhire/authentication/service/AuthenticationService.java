@@ -49,11 +49,22 @@ public class AuthenticationService {
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         String identifier = request.identifier().trim();
-        User user = userRepository.findByEmailIgnoreCaseOrUsernameIgnoreCase(identifier, identifier)
-                .filter(found -> passwordEncoder.matches(request.password(), found.getPasswordHash()))
+
+        User user = userRepository
+                .findByEmailIgnoreCaseOrUsernameIgnoreCase(identifier, identifier)
                 .orElseThrow(InvalidCredentialsException::new);
+
+        System.out.println("USER FOUND: " + user.getUsername());
+
+        System.out.println("PASSWORD MATCH: " +
+                passwordEncoder.matches(request.password(), user.getPasswordHash()));
+
         UserResponse userResponse = userMapper.toResponse(user);
-        return new AuthResponse(jwtService.generateToken(user), "Bearer", userResponse);
+
+        return new AuthResponse(
+                jwtService.generateToken(user),
+                "Bearer",
+                userResponse);
     }
 
     private UserResponse register(String fullName, String email, String username, String password, Role role) {
