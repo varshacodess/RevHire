@@ -58,7 +58,7 @@ class AuthenticationServiceTest {
         ));
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
+        verify(userRepository).save(captor.capture()); j
         User saved = captor.getValue();
         assertEquals(Role.CANDIDATE, saved.getRole());
         assertTrue(passwordEncoder.matches("securePass123", saved.getPasswordHash()));
@@ -164,5 +164,6 @@ class AuthenticationServiceTest {
         assertThrows(InvalidCredentialsException.class, () -> authenticationService.login(
                 new LoginRequest("candidate", "wrongPassword123")
         ));
+        verify(jwtService, never()).generateToken(any(User.class));
     }
 }
