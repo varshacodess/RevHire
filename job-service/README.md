@@ -85,18 +85,34 @@ Job detail responses also include the configured details for closed jobs, with
 `timestamp`, `status`, `error`, `message`, `path`, and optional
 `fieldErrors`; internal exception details are not returned.
 
-## Security and integration boundary
+## Security and Application Service integration
 
-Spring Security remains enabled. No shared identity provider, role mapping, or
-service-to-service credential contract is configured in this repository, so
-the Spring Boot default authentication currently protects all endpoints.
-The default CSRF protection also applies to state-changing requests; clients
-must provide an authenticated session and CSRF token for those requests.
-Recruiter-specific authorization is not implemented. Before deployment,
-Application Service must use a reachable Job Service base URL (port `8083`)
-and the authentication credentials/mechanism agreed for the target environment.
-The detail contract it needs is `GET /api/jobs/{id}`: `200` with `jobId`,
-`exists`, `status`, and `acceptingApplications`, or `404` with the standard
-error body.
+Job Service validates the Authentication Service's signed Bearer JWT. Set
+`JWT_SECRET` in the Job Service runtime environment to the same Base64-encoded
+secret used by Authentication Service; the secret is decoded before building
+the HMAC signing key. Do not commit the secret. Tokens must have a valid
+signature and expiration and include the Auth user ID in the `sub` claim and a
+`role` claim (`CANDIDATE` or `RECRUITER`).
 
-No delete endpoint is provided because no deletion policy was established.
+All endpoints require authentication. Candidates and recruiters can search;
+only candidates can read individual job details, and only recruiters can
+create, update, or close postings.
+Missing, invalid, or expired tokens return `401 Unauthorized`; an authenticated
+role without permission returns `403 Forbidden`. Application Service should
+forward the candidate's existing `Authorization: Bearer <token>` header when
+calling Job Service at its reachable base URL on port `8083`.
+
+To check the application eligibility contract in Postman, send
+`GET /api/jobs/{id}` with a valid candidate Bearer token:
+
+| Case | Expected status and response |
+|---|---|
+| Existing `OPEN` job | `200`; `exists: true`, `status: "OPEN"`, `acceptingApplications: true`. |
+| Existing `CLOSED` job | `200`; `exists: true`, `status: "CLOSED"`, `acceptingApplications: false`. |
+| Unknown job ID | `404` with the standard error body. |
+| Missing, invalid, or expired token | `401 Unauthorized`. |
+| Valid recruiter token | `403` for candidate-only job details. |
+| Candidate token on create, update, or close | `403 Forbidden`. |
+
+Use the Job Service API as documented above; no delete endpoint is provided
+because no deletion policy was established.
