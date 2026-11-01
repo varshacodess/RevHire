@@ -115,7 +115,27 @@ class ApplicationRepositoryIntegrationTest {
         assertEquals(ApplicationStatus.REVIEWING, reviewingPage.getContent().getFirst().getStatus());
     }
 
-    private void save(Long candidateId, Long jobId, ApplicationStatus status) {
-        applicationRepository.save(new Application(candidateId, jobId, status));
+    @Test
+    void findsApplicationsOnlyForSpecifiedOwnedJobIdsAndPersistsUpdatedStatus() {
+        Application ownedApplication = save(41L, 101L, ApplicationStatus.PENDING);
+        save(42L, 202L, ApplicationStatus.PENDING);
+
+        Page<Application> ownedApplications = applicationRepository.findAllByJobIdIn(
+                Set.of(101L),
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate"))
+        );
+
+        assertEquals(1L, ownedApplications.getTotalElements());
+        assertEquals(41L, ownedApplications.getContent().getFirst().getCandidateId());
+
+        ownedApplication.setStatus(ApplicationStatus.ACCEPTED);
+        applicationRepository.saveAndFlush(ownedApplication);
+        Application reloaded = applicationRepository.findById(ownedApplication.getApplicationId()).orElseThrow();
+        assertEquals(ApplicationStatus.ACCEPTED, reloaded.getStatus());
+        assertTrue(reloaded.getUpdatedDate() != null);
+    }
+
+    private Application save(Long candidateId, Long jobId, ApplicationStatus status) {
+        return applicationRepository.saveAndFlush(new Application(candidateId, jobId, status));
     }
 }

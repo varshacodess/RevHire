@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface ApplicationRepository extends JpaRepository<Application, Long> {
     boolean existsByCandidateIdAndJobId(Long candidateId, Long jobId);
@@ -23,6 +24,8 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
             ApplicationStatus status,
             Pageable pageable
     );
+
+    Page<Application> findAllByJobIdIn(Set<Long> jobIds, Pageable pageable);
 
     Optional<Application> findByApplicationIdAndCandidateId(Long applicationId, Long candidateId);
 

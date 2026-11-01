@@ -2,5 +2,7 @@ package com.revhire.application.entity;
 
 public enum ApplicationStatus {
     PENDING,
-    REVIEWING
+    REVIEWING,
+    ACCEPTED,
+    REJECTED
 }

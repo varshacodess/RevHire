@@ -82,6 +82,11 @@ public class Application {
         return status;
     }
 
+    public void setStatus(ApplicationStatus status) {
+        this.status = status;
+        this.updatedDate = LocalDateTime.now();
+    }
+
     public LocalDateTime getAppliedDate() {
         return appliedDate;
     }

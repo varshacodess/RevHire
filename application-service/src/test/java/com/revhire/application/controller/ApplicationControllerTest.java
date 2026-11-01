@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -53,10 +54,12 @@ class ApplicationControllerTest {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
         Application saved = new Application(41L, 12L, ApplicationStatus.PENDING);
         ReflectionTestUtils.setField(saved, "applicationId", 7L);
-        when(applicationService.submit(eq(41L), any(SubmitApplicationRequest.class))).thenReturn(saved);
+        when(applicationService.submit(eq(41L), any(SubmitApplicationRequest.class), eq("candidate-test-token")))
+                .thenReturn(saved);
 
         mockMvc.perform(post("/api/applications")
-                        .with(user("candidate"))
+                        .with(jwt().jwt(jwt -> jwt.tokenValue("candidate-test-token")
+                                .subject("41").claim("role", "CANDIDATE")))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"jobId\":12}"))
@@ -85,16 +88,33 @@ class ApplicationControllerTest {
     @Test
     void returnsConflictForDuplicateApplication() throws Exception {
         when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
-        when(applicationService.submit(eq(41L), any(SubmitApplicationRequest.class)))
+        when(applicationService.submit(eq(41L), any(SubmitApplicationRequest.class), eq("candidate-test-token")))
                 .thenThrow(new DuplicateApplicationException("Candidate has already applied for this job"));
 
         mockMvc.perform(post("/api/applications")
-                        .with(user("candidate"))
+                        .with(jwt().jwt(jwt -> jwt.tokenValue("candidate-test-token")
+                                .subject("41").claim("role", "CANDIDATE")))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"jobId\":12}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Candidate has already applied for this job"));
+    }
+
+    @Test
+    void returnsServiceUnavailableWhenJobServiceCannotBeReached() throws Exception {
+        when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
+        when(applicationService.submit(eq(41L), any(SubmitApplicationRequest.class), eq("candidate-test-token")))
+                .thenThrow(new DependencyUnavailableException("Job Service is unavailable"));
+
+        mockMvc.perform(post("/api/applications")
+                        .with(jwt().jwt(jwt -> jwt.tokenValue("candidate-test-token")
+                                .subject("41").claim("role", "CANDIDATE")))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"jobId\":12}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message").value("Job Service is unavailable"));
     }
 
     @Test
@@ -121,6 +141,19 @@ class ApplicationControllerTest {
 
         verify(candidateIdentityProvider).getCandidateId(any());
         verify(applicationService).findByCandidateId(41L);
+    }
+
+    @Test
+    void candidateHistoryReturnsPersistedAcceptedStatus() throws Exception {
+        when(candidateIdentityProvider.getCandidateId(any())).thenReturn(41L);
+        Application accepted = application(
+                41L, 12L, 7L, ApplicationStatus.ACCEPTED, LocalDateTime.parse("2026-10-29T12:00:00")
+        );
+        when(applicationService.findByCandidateId(41L)).thenReturn(List.of(accepted));
+
+        mockMvc.perform(get("/api/applications/me").with(user("candidate")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("ACCEPTED"));
     }
 
     @Test
@@ -282,7 +315,8 @@ class ApplicationControllerTest {
         mockMvc.perform(get("/api/applications/me/page?status=UNKNOWN").with(user("candidate")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Request validation failed"))
-                .andExpect(jsonPath("$.fieldErrors.parameter").value("status must be PENDING or REVIEWING"));
+                .andExpect(jsonPath("$.fieldErrors.parameter")
+                        .value("status must be PENDING, REVIEWING, ACCEPTED or REJECTED"));
     }
 
     @Test

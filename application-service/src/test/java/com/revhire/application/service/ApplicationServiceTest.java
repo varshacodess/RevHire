@@ -1,6 +1,7 @@
 package com.revhire.application.service;
 
 import com.revhire.application.dto.SubmitApplicationRequest;
+import com.revhire.application.dto.RecruiterApplicationResponse;
 import com.revhire.application.entity.Application;
 import com.revhire.application.entity.ApplicationStatus;
 import com.revhire.application.exception.DuplicateApplicationException;
@@ -22,6 +23,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -49,10 +51,14 @@ class ApplicationServiceTest {
         when(applicationRepository.saveAndFlush(any(Application.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        Application result = applicationService.submit(41L, new SubmitApplicationRequest(12L));
+        Application result = applicationService.submit(
+                41L,
+                new SubmitApplicationRequest(12L),
+                "candidate-test-token"
+        );
 
         ArgumentCaptor<Application> applicationCaptor = ArgumentCaptor.forClass(Application.class);
-        verify(jobEligibilityVerifier).verifyJobIsOpen(12L);
+        verify(jobEligibilityVerifier).verifyJobIsOpen(12L, "candidate-test-token");
         verify(applicationRepository).saveAndFlush(applicationCaptor.capture());
         assertEquals(41L, result.getCandidateId());
         assertEquals(12L, result.getJobId());
@@ -65,7 +71,7 @@ class ApplicationServiceTest {
 
         assertThrows(
                 DuplicateApplicationException.class,
-                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L))
+                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L), "candidate-test-token")
         );
         verify(applicationRepository, never()).saveAndFlush(any(Application.class));
     }
@@ -79,12 +85,56 @@ class ApplicationServiceTest {
 
         DuplicateApplicationException exception = assertThrows(
                 DuplicateApplicationException.class,
-                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L))
+                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L), "candidate-test-token")
         );
 
         assertEquals("Candidate has already applied for this job", exception.getMessage());
         assertEquals(databaseException, exception.getCause());
         verify(applicationRepository).saveAndFlush(any(Application.class));
+    }
+
+    @Test
+    void doesNotSaveWhenJobIsClosed() {
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("Job is not accepting applications"))
+                .when(jobEligibilityVerifier).verifyJobIsOpen(12L, "candidate-test-token");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L), "candidate-test-token")
+        );
+
+        verify(applicationRepository, never()).existsByCandidateIdAndJobId(41L, 12L);
+        verify(applicationRepository, never()).saveAndFlush(any(Application.class));
+    }
+
+    @Test
+    void doesNotSaveWhenJobDoesNotExist() {
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("Job does not exist"))
+                .when(jobEligibilityVerifier).verifyJobIsOpen(12L, "candidate-test-token");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L), "candidate-test-token")
+        );
+
+        verify(applicationRepository, never()).existsByCandidateIdAndJobId(41L, 12L);
+        verify(applicationRepository, never()).saveAndFlush(any(Application.class));
+    }
+
+    @Test
+    void doesNotSaveWhenJobServiceIsUnavailable() {
+        org.mockito.Mockito.doThrow(new com.revhire.application.exception.DependencyUnavailableException(
+                        "Job Service is unavailable"
+                ))
+                .when(jobEligibilityVerifier).verifyJobIsOpen(12L, "candidate-test-token");
+
+        assertThrows(
+                com.revhire.application.exception.DependencyUnavailableException.class,
+                () -> applicationService.submit(41L, new SubmitApplicationRequest(12L), "candidate-test-token")
+        );
+
+        verify(applicationRepository, never()).existsByCandidateIdAndJobId(41L, 12L);
+        verify(applicationRepository, never()).saveAndFlush(any(Application.class));
     }
 
     @Test
@@ -205,6 +255,88 @@ class ApplicationServiceTest {
                 .thenReturn(Optional.empty());
 
         assertEquals(Optional.empty(), applicationService.findByApplicationIdAndCandidateId(99L, 41L));
+    }
+
+    @Test
+    void recruiterListsOnlyApplicationsForJobsReturnedAsOwnedByJobService() {
+        JobEligibilityVerifier.OwnedJob ownedJob = new JobEligibilityVerifier.OwnedJob(12L, "Backend Engineer");
+        Pageable pageable = PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "appliedDate"));
+        Application application = application(
+                41L, 12L, 7L, LocalDateTime.parse("2026-10-29T12:00:00")
+        );
+        when(jobEligibilityVerifier.findJobsOwnedByRecruiter("recruiter-token"))
+                .thenReturn(List.of(ownedJob));
+        when(applicationRepository.findAllByJobIdIn(Set.of(12L), pageable))
+                .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
+
+        Page<RecruiterApplicationResponse> result = applicationService.findByRecruiter(
+                "recruiter-token",
+                pageable
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(12L, result.getContent().getFirst().jobId());
+        assertEquals("Backend Engineer", result.getContent().getFirst().jobTitle());
+        verify(applicationRepository).findAllByJobIdIn(Set.of(12L), pageable);
+    }
+
+    @Test
+    void recruiterCannotUpdateApplicationForJobNotOwnedByJobService() {
+        Application foreignApplication = application(
+                42L, 99L, 8L, LocalDateTime.parse("2026-10-29T12:00:00")
+        );
+        when(applicationRepository.findById(8L)).thenReturn(Optional.of(foreignApplication));
+        when(jobEligibilityVerifier.findJobsOwnedByRecruiter("recruiter-token"))
+                .thenReturn(List.of(new JobEligibilityVerifier.OwnedJob(12L, "Owned job")));
+
+        assertEquals(Optional.empty(), applicationService.updateStatusForRecruiter(
+                8L,
+                ApplicationStatus.REJECTED,
+                "recruiter-token"
+        ));
+
+        verify(applicationRepository, never()).saveAndFlush(any(Application.class));
+    }
+
+    @Test
+    void recruiterCanUpdateStatusForOwnedApplication() {
+        Application application = application(
+                41L, 12L, 7L, LocalDateTime.parse("2026-10-29T12:00:00")
+        );
+        when(applicationRepository.findById(7L)).thenReturn(Optional.of(application));
+        when(jobEligibilityVerifier.findJobsOwnedByRecruiter("recruiter-token"))
+                .thenReturn(List.of(new JobEligibilityVerifier.OwnedJob(12L, "Backend Engineer")));
+        when(applicationRepository.saveAndFlush(application)).thenReturn(application);
+
+        RecruiterApplicationResponse result = applicationService.updateStatusForRecruiter(
+                7L,
+                ApplicationStatus.ACCEPTED,
+                "recruiter-token"
+        ).orElseThrow();
+
+        assertEquals(ApplicationStatus.ACCEPTED, application.getStatus());
+        assertEquals(ApplicationStatus.ACCEPTED, result.applicationStatus());
+        assertEquals("Backend Engineer", result.jobTitle());
+        assertEquals(application.getUpdatedDate(), result.updatedDate());
+        verify(applicationRepository).saveAndFlush(application);
+    }
+
+    @Test
+    void recruiterListingFailsClosedWhenJobServiceIsUnavailable() {
+        org.mockito.Mockito.doThrow(new com.revhire.application.exception.DependencyUnavailableException(
+                        "Job Service is unavailable"
+                ))
+                .when(jobEligibilityVerifier).findJobsOwnedByRecruiter("recruiter-token");
+
+        assertThrows(
+                com.revhire.application.exception.DependencyUnavailableException.class,
+                () -> applicationService.findByRecruiter(
+                        "recruiter-token",
+                        PageRequest.of(0, 10)
+                )
+        );
+
+        verify(applicationRepository, never()).findAllByJobIdIn(any(), any());
     }
 
     private Application application(
