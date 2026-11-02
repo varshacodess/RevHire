@@ -1,9 +1,9 @@
 package com.revhire.application.service;
 
 import com.revhire.application.exception.AuthenticationRequiredException;
-import com.revhire.application.exception.DependencyUnavailableException;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -16,18 +16,21 @@ public class SecurityContextCandidateIdentityProvider implements CandidateIdenti
             throw new AuthenticationRequiredException("Authentication is required");
         }
 
-        if (!(authentication.getPrincipal() instanceof CandidatePrincipal candidatePrincipal)) {
-            throw new DependencyUnavailableException(
-                    "Authentication does not expose a candidate identity; configure the authentication integration"
-            );
+        if (!(authentication instanceof JwtAuthenticationToken jwtAuthentication)
+                || !authentication.getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority().equals("ROLE_CANDIDATE"))) {
+            throw new AuthenticationRequiredException("A candidate JWT identity is required");
         }
 
-        Long candidateId = candidatePrincipal.getCandidateId();
-        if (candidateId == null || candidateId <= 0) {
-            throw new DependencyUnavailableException(
-                    "Authentication does not provide a valid candidate ID"
-            );
+        String subject = jwtAuthentication.getToken().getSubject();
+        try {
+            long candidateId = Long.parseLong(subject);
+            if (candidateId <= 0) {
+                throw new NumberFormatException("Candidate ID must be positive");
+            }
+            return candidateId;
+        } catch (NumberFormatException exception) {
+            throw new AuthenticationRequiredException("JWT subject must be a positive candidate ID");
         }
-        return candidateId;
     }
 }

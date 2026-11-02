@@ -2,6 +2,8 @@ package com.revhire.application.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -33,8 +35,9 @@ public class Application {
     @Column(name = "job_id", nullable = false)
     private Long jobId;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
-    private String status;
+    private ApplicationStatus status;
 
     @Column(name = "applied_date", nullable = false)
     private LocalDateTime appliedDate;
@@ -45,7 +48,7 @@ public class Application {
     protected Application() {
     }
 
-    public Application(Long candidateId, Long jobId, String status) {
+    public Application(Long candidateId, Long jobId, ApplicationStatus status) {
         this.candidateId = candidateId;
         this.jobId = jobId;
         this.status = status;
@@ -75,8 +78,13 @@ public class Application {
         return jobId;
     }
 
-    public String getStatus() {
+    public ApplicationStatus getStatus() {
         return status;
+    }
+
+    public void setStatus(ApplicationStatus status) {
+        this.status = status;
+        this.updatedDate = LocalDateTime.now();
     }
 
     public LocalDateTime getAppliedDate() {
