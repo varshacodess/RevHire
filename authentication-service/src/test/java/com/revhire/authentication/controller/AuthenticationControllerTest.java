@@ -2,10 +2,13 @@ package com.revhire.authentication.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -27,6 +30,8 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -49,6 +54,19 @@ class AuthenticationControllerTest {
     private JwtService jwtService;
 
     private final JwtService tokenIssuer = new JwtService(JWT_SECRET, 60_000);
+
+    @Test
+    void loginPreflightIsAllowedForFrontendOrigin() throws Exception {
+        mockMvc.perform(options("/api/auth/login")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:4200")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, HttpMethod.POST.name())
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:4200"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("POST")))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("authorization")))
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+    }
 
     @Test
     void candidateRegistrationIsPublicAndReturnsSafeResponse() throws Exception {
@@ -91,11 +109,13 @@ class AuthenticationControllerTest {
                         new UserResponse(1L, "Candidate", "candidate@example.com", "candidate", Role.CANDIDATE)));
 
         mockMvc.perform(post("/api/auth/login")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:4200")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"identifier":"candidate","password":"securePass123"}
                                 """))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, containsString("Authorization")))
                 .andExpect(jsonPath("$.token").value("signed.jwt.token"))
                 .andExpect(jsonPath("$.user.role").value("CANDIDATE"))
                 .andExpect(jsonPath("$.user.password").doesNotExist());

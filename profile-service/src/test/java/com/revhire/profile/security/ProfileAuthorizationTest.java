@@ -4,8 +4,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.revhire.profile.controller.CandidateProfileController;
@@ -26,6 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -46,6 +51,19 @@ class ProfileAuthorizationTest {
     @MockitoBean private ExperienceService experienceService;
     @MockitoBean private ResumeService resumeService;
     @MockitoBean private RecruiterProfileService recruiterProfileService;
+
+    @Test
+    void candidateProfilePreflightIsAllowedForFrontendOrigin() throws Exception {
+        mockMvc.perform(options("/api/candidates/profile")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:4200")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, HttpMethod.POST.name())
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:4200"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("POST")))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("authorization")))
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+    }
 
     @Test
     void candidateCanCreateOwnProfileWithoutSpecifyingAccountId() throws Exception {
@@ -102,8 +120,10 @@ class ProfileAuthorizationTest {
                 .thenReturn(new RecruiterProfileResponse(3L, 24L, "Recruiter", "Org",
                         null, null, null, null, null));
 
-        mockMvc.perform(get("/api/recruiters/profile"))
-                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/recruiters/profile")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:4200"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, containsString("Authorization")));
     }
 
     @Test
