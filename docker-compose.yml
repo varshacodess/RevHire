@@ -1,1 +1,136 @@
-# Coordinated local Docker deployment will be configured after the services are implemented.
+services:
+
+  # 1. MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: revhire-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database:/docker-entrypoint-initdb.d
+    networks:
+      - revhire-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # 2. Eureka Discovery Server
+  discovery-server:
+    build:
+      context: ./discovery-server
+      dockerfile: Dockerfile
+    image: revhire/discovery-server:local
+    container_name: revhire-discovery
+    ports:
+      - "8761:8761"
+    networks:
+      - revhire-network
+
+  # 3. Authentication Service
+  authentication-service:
+    build:
+      context: ./authentication-service
+      dockerfile: Dockerfile
+    image: revhire/authentication-service:local
+    container_name: revhire-auth
+    depends_on:
+      mysql:
+        condition: service_healthy
+      discovery-server:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/revhire_authentication
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+    networks:
+      - revhire-network
+
+  # 4. Profile Service
+  profile-service:
+    build:
+      context: ./profile-service
+      dockerfile: Dockerfile
+    image: revhire/profile-service:local
+    container_name: revhire-profile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      discovery-server:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/revhire_profile
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+    networks:
+      - revhire-network
+
+  # 5. Job Service - implementation pending
+  job-service:
+    image: revhire/job-service:latest
+    container_name: revhire-job
+    profiles:
+      - pending
+    depends_on:
+      - discovery-server
+      - mysql
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/revhire_job
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+    ports:
+      - "8083:8083"
+    networks:
+      - revhire-network
+
+  # 6. Application Service - implementation pending
+  application-service:
+    image: revhire/application-service:latest
+    container_name: revhire-application
+    profiles:
+      - pending
+    depends_on:
+      - discovery-server
+      - mysql
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/revhire_application
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+    ports:
+      - "8084:8084"
+    networks:
+      - revhire-network
+
+  # 7. API Gateway
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    image: revhire/api-gateway:local
+    container_name: revhire-gateway
+    depends_on:
+      - discovery-server
+      - authentication-service
+      - profile-service
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+    ports:
+      - "8080:8080"
+    networks:
+      - revhire-network
+
+networks:
+  revhire-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
