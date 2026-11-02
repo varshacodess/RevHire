@@ -1,5 +1,11 @@
-target/
-.idea/
-.vscode/
-*.iml
+
+# Environment variables and secrets
 .env
+.env.*
+!.env.example
+
+# Local application environment files
+**/.env
+**/.env.*
+
+**/target/

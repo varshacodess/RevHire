@@ -1,1 +1,34 @@
-# CI/CD workflow placeholder - configure build, test, Docker and AWS deployment later.
+name: profile-service CI
+
+on:
+  pull_request:
+    branches:
+      - development
+    paths:
+      - profile-service/**
+      - .github/workflows/deploy-profile.yml
+  push:
+    branches:
+      - development
+    paths:
+      - profile-service/**
+      - .github/workflows/deploy-profile.yml
+
+jobs:
+  build-and-test:
+    name: Build and test profile-service
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build and test with Maven
+        working-directory: profile-service
+        run: mvn -B -ntp clean verify
