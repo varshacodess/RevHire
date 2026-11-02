@@ -58,7 +58,7 @@ class AuthenticationServiceTest {
         ));
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture()); j
+        verify(userRepository).save(captor.capture());
         User saved = captor.getValue();
         assertEquals(Role.CANDIDATE, saved.getRole());
         assertTrue(passwordEncoder.matches("securePass123", saved.getPasswordHash()));
