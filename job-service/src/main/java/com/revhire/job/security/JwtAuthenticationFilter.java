@@ -55,6 +55,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 reject(response);
                 return;
             }
+            try {
+                if (Long.parseLong(subject) <= 0) {
+                    reject(response);
+                    return;
+                }
+            } catch (NumberFormatException exception) {
+                reject(response);
+                return;
+            }
 
             var authentication = new UsernamePasswordAuthenticationToken(
                     subject,

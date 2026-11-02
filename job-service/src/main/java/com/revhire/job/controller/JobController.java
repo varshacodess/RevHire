@@ -8,6 +8,7 @@ import com.revhire.job.dto.UpdateJobRequest;
 import com.revhire.job.service.JobService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import org.springframework.security.core.Authentication;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/jobs")
@@ -33,8 +35,11 @@ public class JobController {
     }
 
     @PostMapping
-    public ResponseEntity<JobResponse> create(@Valid @RequestBody CreateJobRequest request) {
-        JobResponse created = service.create(request);
+    public ResponseEntity<JobResponse> create(
+            @Valid @RequestBody CreateJobRequest request,
+            Authentication authentication
+    ) {
+        JobResponse created = service.create(request, recruiterId(authentication));
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(created.jobId())
@@ -52,16 +57,26 @@ public class JobController {
         return service.search(request);
     }
 
+    @GetMapping("/recruiter/me")
+    public List<JobResponse> getRecruiterJobs(Authentication authentication) {
+        return service.getRecruiterJobs(recruiterId(authentication));
+    }
+
     @PatchMapping("/{id}")
     public JobResponse partiallyUpdate(
             @PathVariable @Positive Long id,
-            @Valid @RequestBody UpdateJobRequest request
+            @Valid @RequestBody UpdateJobRequest request,
+            Authentication authentication
     ) {
-        return service.update(id, request);
+        return service.update(id, recruiterId(authentication), request);
     }
 
     @PatchMapping("/{id}/close")
-    public JobResponse close(@PathVariable @Positive Long id) {
-        return service.close(id);
+    public JobResponse close(@PathVariable @Positive Long id, Authentication authentication) {
+        return service.close(id, recruiterId(authentication));
+    }
+
+    private Long recruiterId(Authentication authentication) {
+        return Long.valueOf(authentication.getName());
     }
 }

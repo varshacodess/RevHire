@@ -8,11 +8,14 @@ Compose service networking or service discovery.
 
 ## Database design
 
-The initial schema consists of `jobs` and `job_skills`. `jobs.id` is an
+The schema consists of `jobs` and `job_skills`. `jobs.id` is an
 auto-incrementing `BIGINT`; `job_skills.job_id` references it and
 `(job_id, skill)` is the skills table primary key. Job columns are title,
 description, requirements, location, employment type, experience years, status,
-and creation/update timestamps.
+creation/update timestamps, and nullable `recruiter_id`. New jobs store the
+authenticated recruiter's ID there. Existing jobs are left unassigned; they
+are not attributed to an arbitrary recruiter and do not appear in a recruiter's
+own-job results.
 
 The status values are `OPEN` and `CLOSED`. New postings default to `OPEN`;
 closing a posting sets it to `CLOSED`. Search returns only `OPEN` postings, and
@@ -20,6 +23,12 @@ closing a posting sets it to `CLOSED`. Search returns only `OPEN` postings, and
 initial Job Service decisions because no shared schema or status contract was
 provided. The SQL initializer only creates missing tables; Hibernate validates
 the mappings and does not update or drop tables.
+
+For an existing database, apply
+`src/main/resources/db/manual-migrations/add_job_recruiter_id.sql` once before
+starting the updated service. It adds a nullable ownership column and index
+without changing or deleting existing jobs. The project does not currently
+include an automatic migration runner.
 
 Set `JOB_DB_URL`, `JOB_DB_USERNAME`, and `JOB_DB_PASSWORD` in the runtime
 environment. For example, a local development URL may be
@@ -36,8 +45,15 @@ All paths start with `/api/jobs`.
 | `POST /api/jobs` | Create an `OPEN` job; responds `201 Created` and a `Location` header. |
 | `GET /api/jobs/{id}` | Return job details, status, `exists`, and `acceptingApplications`; missing IDs return `404`. |
 | `GET /api/jobs` | Search and paginate `OPEN` jobs. |
+| `GET /api/jobs/recruiter/me` | Return the authenticated recruiter's jobs as an array of `JobResponse` objects. |
 | `PATCH /api/jobs/{id}` | Partially update supplied fields; omitted fields remain unchanged. |
 | `PATCH /api/jobs/{id}/close` | Change status to `CLOSED`; repeated requests are safe. |
+
+Recruiter ownership is derived from the validated JWT `sub` claim (the Auth
+user ID), never from request data. Only the owner can update or close a job.
+Requests for another recruiter's job return `404` to avoid disclosing whether
+that job exists. Legacy jobs without an owner are not included in the recruiter
+endpoint and cannot be changed through recruiter-only operations.
 
 Search query parameters can be combined: `keywords` (title, description, or
 requirements), `title`, `location`, `skill`, `employmentType`,
@@ -96,7 +112,9 @@ signature and expiration and include the Auth user ID in the `sub` claim and a
 
 All endpoints require authentication. Candidates and recruiters can search;
 only candidates can read individual job details, and only recruiters can
-create, update, or close postings.
+create, list their own jobs, update, or close postings. Recruiter job listing,
+creation, updates, and closing use the numeric Auth user ID from the signed
+JWT subject.
 Missing, invalid, or expired tokens return `401 Unauthorized`; an authenticated
 role without permission returns `403 Forbidden`. Application Service should
 forward the candidate's existing `Authorization: Bearer <token>` header when

@@ -18,6 +18,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Service
 @Transactional
 public class JobService {
@@ -29,9 +31,18 @@ public class JobService {
         this.mapper = mapper;
     }
 
-    public JobResponse create(CreateJobRequest request) {
+    public JobResponse create(CreateJobRequest request, Long recruiterId) {
         Job job = mapper.toEntity(request);
+        job.setRecruiterId(recruiterId);
         return mapper.toResponse(repository.save(job));
+    }
+
+    @Transactional(readOnly = true)
+    public List<JobResponse> getRecruiterJobs(Long recruiterId) {
+        return repository.findAllByRecruiterId(recruiterId)
+                .stream()
+                .map(mapper::toResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -58,16 +69,21 @@ public class JobService {
         return PageResponse.from(result.map(mapper::toResponse));
     }
 
-    public JobResponse update(Long id, UpdateJobRequest request) {
-        Job job = findJob(id);
+    public JobResponse update(Long id, Long recruiterId, UpdateJobRequest request) {
+        Job job = findJob(id, recruiterId);
         mapper.updateEntity(job, request);
         return mapper.toResponse(repository.save(job));
     }
 
-    public JobResponse close(Long id) {
-        Job job = findJob(id);
+    public JobResponse close(Long id, Long recruiterId) {
+        Job job = findJob(id, recruiterId);
         job.setStatus(JobStatus.CLOSED);
         return mapper.toResponse(repository.save(job));
+    }
+
+    private Job findJob(Long id, Long recruiterId) {
+        return repository.findByIdAndRecruiterId(id, recruiterId)
+                .orElseThrow(() -> new JobNotFoundException(id));
     }
 
     private Job findJob(Long id) {

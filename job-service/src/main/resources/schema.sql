@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS jobs (
     id BIGINT NOT NULL AUTO_INCREMENT,
+    recruiter_id BIGINT NULL,
     title VARCHAR(150) NOT NULL,
     description TEXT NOT NULL,
     requirements TEXT NOT NULL,
@@ -10,6 +11,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at TIMESTAMP(6) NOT NULL,
     updated_at TIMESTAMP(6) NOT NULL,
     PRIMARY KEY (id),
+    INDEX idx_jobs_recruiter_id (recruiter_id),
     CONSTRAINT chk_jobs_status CHECK (status IN ('OPEN', 'CLOSED'))
 );
 

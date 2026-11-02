@@ -33,6 +33,7 @@ import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,7 +41,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(
-        value = JobController.class,
         properties = "jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 )
 @Import({ApiExceptionHandler.class, SecurityConfig.class, JwtService.class, JwtAuthenticationFilter.class})
@@ -56,7 +56,7 @@ class JobControllerTest {
 
     @Test
     void createsJobAndReturnsLocation() throws Exception {
-        when(service.create(any(CreateJobRequest.class)))
+        when(service.create(any(CreateJobRequest.class), eq(42L)))
                 .thenReturn(response(7L, JobStatus.OPEN));
 
         mockMvc.perform(MockMvcRequestBuilders.post("/api/jobs")
@@ -77,6 +77,8 @@ class JobControllerTest {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
                         .header().string("Location", "http://localhost/api/jobs/7"))
                 .andExpect(jsonPath("$.status").value("OPEN"));
+
+        verify(service).create(any(CreateJobRequest.class), eq(42L));
     }
 
     @Test
@@ -198,7 +200,7 @@ class JobControllerTest {
 
     @Test
     void closeEndpointMarksJobAsUnavailable() throws Exception {
-        when(service.close(7L)).thenReturn(response(7L, JobStatus.CLOSED));
+        when(service.close(7L, 42L)).thenReturn(response(7L, JobStatus.CLOSED));
 
         mockMvc.perform(MockMvcRequestBuilders.patch("/api/jobs/7/close")
                         .header(HttpHeaders.AUTHORIZATION, bearerToken("RECRUITER")))
@@ -248,7 +250,7 @@ class JobControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, bearerToken("CANDIDATE")))
                 .andExpect(status().isForbidden());
 
-        verify(service, never()).close(7L);
+        verify(service, never()).close(any(Long.class), any(Long.class));
     }
 
     @Test
@@ -274,13 +276,13 @@ class JobControllerTest {
                         .content("{\"title\":\"Updated\"}"))
                 .andExpect(status().isForbidden());
 
-        verify(service, never()).create(any(CreateJobRequest.class));
-        verify(service, never()).update(any(Long.class), any(UpdateJobRequest.class));
+        verify(service, never()).create(any(CreateJobRequest.class), any(Long.class));
+        verify(service, never()).update(any(Long.class), any(Long.class), any(UpdateJobRequest.class));
     }
 
     @Test
     void recruiterCanUpdateJobs() throws Exception {
-        when(service.update(any(Long.class), any(UpdateJobRequest.class)))
+        when(service.update(any(Long.class), eq(42L), any(UpdateJobRequest.class)))
                 .thenReturn(response(7L, JobStatus.OPEN));
 
         mockMvc.perform(MockMvcRequestBuilders.patch("/api/jobs/7")
@@ -300,13 +302,106 @@ class JobControllerTest {
         verify(service, never()).getById(7L);
     }
 
+    @Test
+    void recruiterCanRetrieveTheirJobsUsingJwtSubject() throws Exception {
+        when(service.getRecruiterJobs(42L)).thenReturn(List.of(response(7L, JobStatus.OPEN)));
+
+        mockMvc.perform(MockMvcRequestBuilders.get("/api/jobs/recruiter/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearerToken("RECRUITER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].jobId").value(7))
+                .andExpect(jsonPath("$[0].status").value("OPEN"));
+
+        verify(service).getRecruiterJobs(42L);
+    }
+
+    @Test
+    void recruiterWithNoJobsGetsEmptyArray() throws Exception {
+        when(service.getRecruiterJobs(42L)).thenReturn(List.of());
+
+        mockMvc.perform(MockMvcRequestBuilders.get("/api/jobs/recruiter/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearerToken("RECRUITER")))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .content().json("[]"));
+
+        verify(service).getRecruiterJobs(42L);
+    }
+
+    @Test
+    void candidateCannotRetrieveRecruiterJobs() throws Exception {
+        mockMvc.perform(MockMvcRequestBuilders.get("/api/jobs/recruiter/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearerToken("CANDIDATE")))
+                .andExpect(status().isForbidden());
+
+        verify(service, never()).getRecruiterJobs(any(Long.class));
+    }
+
+    @Test
+    void recruiterCannotUpdateOrCloseAnotherRecruitersJob() throws Exception {
+        when(service.update(eq(7L), eq(84L), any(UpdateJobRequest.class)))
+                .thenThrow(new JobNotFoundException(7L));
+        when(service.close(7L, 84L)).thenThrow(new JobNotFoundException(7L));
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/api/jobs/7")
+                        .header(HttpHeaders.AUTHORIZATION, bearerTokenForUser("RECRUITER", 84L))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Updated\"}"))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(MockMvcRequestBuilders.patch("/api/jobs/7/close")
+                        .header(HttpHeaders.AUTHORIZATION, bearerTokenForUser("RECRUITER", 84L)))
+                .andExpect(status().isNotFound());
+
+        verify(service).update(eq(7L), eq(84L), any(UpdateJobRequest.class));
+        verify(service).close(7L, 84L);
+    }
+
+    @Test
+    void corsPreflightAllowsConfiguredMethodsAndHeadersWithoutJwt() throws Exception {
+        for (String method : List.of("GET", "POST", "PUT", "PATCH", "DELETE")) {
+            mockMvc.perform(MockMvcRequestBuilders.options("/api/jobs")
+                            .header(HttpHeaders.ORIGIN, "http://localhost:4200")
+                            .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, method)
+                            .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS,
+                                    "Authorization, Content-Type, Accept, Origin"))
+                    .andExpect(status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:4200"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                                    org.hamcrest.Matchers.allOf(
+                                            org.hamcrest.Matchers.containsString("GET"),
+                                            org.hamcrest.Matchers.containsString("POST"),
+                                            org.hamcrest.Matchers.containsString("PUT"),
+                                            org.hamcrest.Matchers.containsString("PATCH"),
+                                            org.hamcrest.Matchers.containsString("DELETE"),
+                                            org.hamcrest.Matchers.containsString("OPTIONS"))))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                                    org.hamcrest.Matchers.allOf(
+                                            org.hamcrest.Matchers.containsString("Authorization"),
+                                            org.hamcrest.Matchers.containsString("Content-Type"),
+                                            org.hamcrest.Matchers.containsString("Accept"),
+                                            org.hamcrest.Matchers.containsString("Origin"))));
+        }
+    }
+
     private String bearerToken(String role) {
         return bearerToken(role, Instant.now().plusSeconds(300));
     }
 
     private String bearerToken(String role, Instant expiration) {
+        return bearerToken(role, "42", expiration);
+    }
+
+    private String bearerTokenForUser(String role, Long userId) {
+        return bearerToken(role, userId.toString(), Instant.now().plusSeconds(300));
+    }
+
+    private String bearerToken(String role, String userId, Instant expiration) {
         String token = Jwts.builder()
-                .subject("42")
+                .subject(userId)
                 .claim("email", "test@example.com")
                 .claim("role", role)
                 .expiration(Date.from(expiration))

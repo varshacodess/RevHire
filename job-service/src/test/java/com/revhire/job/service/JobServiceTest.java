@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,23 +58,48 @@ class JobServiceTest {
         var response = service.create(new CreateJobRequest(
                 " Engineer ", " Description ", " Requirements ", " Remote ",
                 " Full time ", 2, List.of("Java", " java ", "Spring")
-        ));
+        ), 42L);
 
         assertEquals(11L, response.jobId());
         assertEquals(JobStatus.OPEN, response.status());
         assertTrue(response.acceptingApplications());
         assertEquals("Engineer", response.title());
         assertEquals(2, response.skills().size());
+
+        org.mockito.ArgumentCaptor<Job> jobCaptor = org.mockito.ArgumentCaptor.forClass(Job.class);
+        verify(repository).save(jobCaptor.capture());
+        assertEquals(42L, jobCaptor.getValue().getRecruiterId());
+    }
+
+    @Test
+    void recruiterCanRetrieveOnlyTheirJobs() {
+        when(repository.findAllByRecruiterId(42L))
+                .thenReturn(List.of(job(14L, JobStatus.OPEN, 42L)));
+
+        var jobs = service.getRecruiterJobs(42L);
+
+        assertEquals(1, jobs.size());
+        assertEquals(14L, jobs.getFirst().jobId());
+        verify(repository).findAllByRecruiterId(42L);
+    }
+
+    @Test
+    void recruiterCannotRetrieveAnotherRecruitersJobs() {
+        when(repository.findAllByRecruiterId(84L)).thenReturn(List.of());
+
+        assertTrue(service.getRecruiterJobs(84L).isEmpty());
+
+        verify(repository).findAllByRecruiterId(84L);
     }
 
     @Test
     void updatePreservesOmittedValues() {
         Job job = job(12L, JobStatus.OPEN);
         job.setTitle("Original");
-        when(repository.findById(12L)).thenReturn(Optional.of(job));
+        when(repository.findByIdAndRecruiterId(12L, 42L)).thenReturn(Optional.of(job));
         when(repository.save(job)).thenReturn(job);
 
-        var response = service.update(12L, new UpdateJobRequest(
+        var response = service.update(12L, 42L, new UpdateJobRequest(
                 "Updated", null, null, null, null, null, null
         ));
 
@@ -86,13 +112,26 @@ class JobServiceTest {
     @Test
     void closeMakesJobIneligibleForApplications() {
         Job job = job(13L, JobStatus.OPEN);
-        when(repository.findById(13L)).thenReturn(Optional.of(job));
+        when(repository.findByIdAndRecruiterId(13L, 42L)).thenReturn(Optional.of(job));
         when(repository.save(job)).thenReturn(job);
 
-        var response = service.close(13L);
+        var response = service.close(13L, 42L);
 
         assertEquals(JobStatus.CLOSED, response.status());
         assertFalse(response.acceptingApplications());
+    }
+
+    @Test
+    void anotherRecruiterCannotUpdateOrCloseJob() {
+        when(repository.findByIdAndRecruiterId(13L, 84L)).thenReturn(Optional.empty());
+
+        assertThrows(JobNotFoundException.class, () -> service.update(
+                13L,
+                84L,
+                new UpdateJobRequest("Updated", null, null, null, null, null, null)
+        ));
+        assertThrows(JobNotFoundException.class, () -> service.close(13L, 84L));
+        verify(repository, never()).save(any(Job.class));
     }
 
     @Test
@@ -131,8 +170,13 @@ class JobServiceTest {
     }
 
     private Job job(Long id, JobStatus status) {
+        return job(id, status, 42L);
+    }
+
+    private Job job(Long id, JobStatus status, Long recruiterId) {
         Job job = new Job();
         job.setId(id);
+        job.setRecruiterId(recruiterId);
         job.setTitle("Engineer");
         job.setDescription("description");
         job.setRequirements("requirements");

@@ -27,6 +27,9 @@ public class Job {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "recruiter_id")
+    private Long recruiterId;
+
     @Column(nullable = false, length = 150)
     private String title;
 
@@ -91,6 +94,14 @@ public class Job {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Long getRecruiterId() {
+        return recruiterId;
+    }
+
+    public void setRecruiterId(Long recruiterId) {
+        this.recruiterId = recruiterId;
     }
 
     public String getTitle() {
